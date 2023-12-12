@@ -1,9 +1,7 @@
 use std::future::{ready, Ready};
+use actix_http::header::{HeaderValue};
 
-use actix_web::{
-	dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-	Error,
-};
+use actix_web::{dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform}, Error, http};
 use futures_util::future::LocalBoxFuture;
 
 // There are two steps in middleware processing.
@@ -50,11 +48,15 @@ impl<S, B> Service<ServiceRequest> for SayHiMiddleware<S>
 
 	fn call(&self, req: ServiceRequest) -> Self::Future {
 		println!("Hi from start. You requested: {}", req.path());
+		let prefix = (&req).headers().get("X-Forwarded-Prefix").unwrap().to_str().unwrap().to_string();
+		let path = (&req).path().to_string();
 
 		let fut = self.service.call(req);
 
 		Box::pin(async move {
-			let res = fut.await?;
+			let mut res = fut.await?;
+			res.headers_mut()
+				.insert(http::header::LOCATION, HeaderValue::from_str((prefix + path.as_str()).as_str()).unwrap());
 
 			println!("Hi from response");
 			Ok(res)
@@ -76,7 +78,7 @@ mod tests {
 		let mw = SayHi{}.new_transform(srv.into_service()).await.unwrap();
 		let mut req = TestRequest::default();
 		req = req.uri("/products")
-			.insert_header(("X-Forward-Prefix", "/api/"));
+			.insert_header(("X-Forwarded-Prefix", "/api/"));
 		let resp = test::call_service(&mw, req.to_srv_request()).await;
 		assert_eq!(resp.status(), http::StatusCode::OK);
 	}
@@ -85,15 +87,16 @@ mod tests {
 	async fn call_service() {
 		let app = App::new()
 			.wrap(SayHi)
-			.service(web::resource("/").to(HttpResponse::Ok));
+			.service(web::resource("/products").to(HttpResponse::Ok));
 		let app_init = app.into_factory();
 		let srv = app_init.new_service(AppConfig::default()).await;
 		let srv = srv.unwrap();
 
-		let req = TestRequest::with_uri("/").to_request();
+		let req = TestRequest::with_uri("/products")
+			.insert_header(("X-Forwarded-Prefix", "/api")).to_request();
 		let res = test::call_service(&srv, req).await;
 
 		assert_eq!(res.status(), http::StatusCode::OK);
-		print!("resp {}", res)
+		assert_eq!("/api/products", res.response().headers().get(http::header::LOCATION).unwrap());
 	}
 }
