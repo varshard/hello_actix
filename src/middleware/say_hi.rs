@@ -64,8 +64,9 @@ impl<S, B> Service<ServiceRequest> for SayHiMiddleware<S>
 
 #[cfg(test)]
 mod tests {
-	use actix_service::IntoService;
-	use actix_web::{http, test};
+	use actix_service::{IntoService, IntoServiceFactory, ServiceFactory};
+	use actix_web::{App, http, HttpResponse, test, web};
+	use actix_web::dev::AppConfig;
 	use actix_web::test::TestRequest;
 	use super::*;
 
@@ -73,7 +74,26 @@ mod tests {
 	async fn add_handlers() {
 		let srv = test::status_service(http::StatusCode::OK);
 		let mw = SayHi{}.new_transform(srv.into_service()).await.unwrap();
-		let resp = test::call_service(&mw, TestRequest::default().to_srv_request()).await;
+		let mut req = TestRequest::default();
+		req = req.uri("/products")
+			.insert_header(("X-Forward-Prefix", "/api/"));
+		let resp = test::call_service(&mw, req.to_srv_request()).await;
 		assert_eq!(resp.status(), http::StatusCode::OK);
+	}
+
+	#[actix_rt::test]
+	async fn call_service() {
+		let app = App::new()
+			.wrap(SayHi)
+			.service(web::resource("/").to(HttpResponse::Ok));
+		let app_init = app.into_factory();
+		let srv = app_init.new_service(AppConfig::default()).await;
+		let srv = srv.unwrap();
+
+		let req = TestRequest::with_uri("/").to_request();
+		let res = test::call_service(&srv, req).await;
+
+		assert_eq!(res.status(), http::StatusCode::OK);
+		print!("resp {}", res)
 	}
 }
