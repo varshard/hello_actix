@@ -48,17 +48,24 @@ impl<S, B> Service<ServiceRequest> for SayHiMiddleware<S>
 
 	fn call(&self, req: ServiceRequest) -> Self::Future {
 		println!("Hi from start. You requested: {}", req.path());
-		let prefix = (&req).headers().get("X-Forwarded-Prefix").unwrap().to_str().unwrap().to_string();
+		let mut prefix = "".to_string();
+		match  req.headers().get("X-Forwarded-Prefix") {
+			None => {}
+			Some(header) => {
+				prefix = header.to_str().unwrap().to_string();
+			}
+		}
 		let path = (&req).path().to_string();
+		let location = if prefix.len() == 0 {path} else {prefix + path.as_str()};
 
 		let fut = self.service.call(req);
 
 		Box::pin(async move {
 			let mut res = fut.await?;
 			res.headers_mut()
-				.insert(http::header::LOCATION, HeaderValue::from_str((prefix + path.as_str()).as_str()).unwrap());
+				.insert(http::header::LOCATION, HeaderValue::from_str(location.as_str()).unwrap());
 
-			println!("Hi from response");
+			println!("Hi from response, {}", location);
 			Ok(res)
 		})
 	}
@@ -76,11 +83,10 @@ mod tests {
 	async fn add_handlers() {
 		let srv = test::status_service(http::StatusCode::OK);
 		let mw = SayHi{}.new_transform(srv.into_service()).await.unwrap();
-		let mut req = TestRequest::default();
-		req = req.uri("/products")
-			.insert_header(("X-Forwarded-Prefix", "/api/"));
-		let resp = test::call_service(&mw, req.to_srv_request()).await;
-		assert_eq!(resp.status(), http::StatusCode::OK);
+		let req = TestRequest::with_uri("/products");
+		let res = test::call_service(&mw, req.to_srv_request()).await;
+		assert_eq!(res.status(), http::StatusCode::OK);
+		assert_eq!("/products", res.response().headers().get(http::header::LOCATION).unwrap());
 	}
 
 	#[actix_rt::test]
