@@ -4,8 +4,9 @@ use actix_http::HttpService;
 use actix_server::Server;
 use actix_service::map_config;
 use actix_web::{dev::AppConfig, get, App};
+use middleware::say_hi::SayHi;
 
-#[get("/")]
+#[get("/banana")]
 async fn index() -> &'static str {
     "Hello, world. From Actix Web!"
 }
@@ -14,9 +15,9 @@ async fn index() -> &'static str {
 async fn main() -> std::io::Result<()> {
   let mut config = AppConfig::default();
     Server::build()
-      .bind("hello-world", "127.0.0.1:8080", || {
+      .bind("hello-world", "127.0.0.1:8060", || {
           // construct actix-web app
-          let app = App::new().service(index);
+          let app = App::new().wrap(SayHi).service(index);
 
           HttpService::build()
             // pass the app to service builder
