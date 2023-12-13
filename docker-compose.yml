@@ -26,6 +26,7 @@ services:
 
   hello-actix:
     image: hello-actix
+    build: .
     ports:
       - "8060:8060"
     labels:
